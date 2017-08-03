@@ -2,10 +2,18 @@ import numpy as np
 import cv2
 import glob
 import matplotlib.image as mpimg
+import matplotlib.pyplot as plt
+
 
 from moviepy.editor import VideoFileClip
 
-def calibrate(test_img):
+
+def display_image(img):
+    plt.figure(figsize=(48, 18))
+    plt.imshow(img)
+    plt.show()
+
+def calibrate():
     objp = np.zeros((6*9,3), np.float32)
     objp[:,:2] = np.mgrid[0:9, 0:6].T.reshape(-1,2)
 
@@ -18,6 +26,7 @@ def calibrate(test_img):
     #print("Total images: ", len(images))
 
     # Step through the list and search for chessboard corners
+    img = None
     for idx, fname in enumerate(images):
         img = cv2.imread(fname)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -31,7 +40,7 @@ def calibrate(test_img):
             imgpoints.append(corners)
 
 
-    img_size = (test_img.shape[1], test_img.shape[0])
+    img_size = (img.shape[1], img.shape[0])
 
     # Do camera calibration given object points and image points
     #print("\nObject points: ", objpoints)
@@ -82,7 +91,7 @@ def unwarp(img, nx, ny, mtx, dist):
 
 
 
-def pipeline(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
+def transform(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
     img = np.copy(img)
     # Convert to HSV color space and separate the V channel
     hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HLS).astype(np.float)
@@ -198,6 +207,40 @@ def get_lane_indices(binary_warped, leftx_base, rightx_base):
     return (left_lane_inds, right_lane_inds)
 
 
+def plot_curvature(binary_warped, left_lane_inds, right_lane_inds, ploty, left_fitx, right_fitx):
+    binary_warped = binary_warped.copy()
+    nonzero = binary_warped.nonzero()
+    nonzeroy = np.array(nonzero[0])
+    nonzerox = np.array(nonzero[1])
+    margin = 100
+
+    out_img = np.dstack((binary_warped, binary_warped, binary_warped))*255
+    window_img = np.zeros_like(out_img)
+    # Color in left and right line pixels
+    out_img[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
+    out_img[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [0, 0, 255]
+
+    # Generate a polygon to illustrate the search window area
+    # And recast the x and y points into usable format for cv2.fillPoly()
+    left_line_window1 = np.array([np.transpose(np.vstack([left_fitx-margin, ploty]))])
+    left_line_window2 = np.array([np.flipud(np.transpose(np.vstack([left_fitx+margin, ploty])))])
+    left_line_pts = np.hstack((left_line_window1, left_line_window2))
+    right_line_window1 = np.array([np.transpose(np.vstack([right_fitx-margin, ploty]))])
+    right_line_window2 = np.array([np.flipud(np.transpose(np.vstack([right_fitx+margin, ploty])))])
+    right_line_pts = np.hstack((right_line_window1, right_line_window2))
+
+    # Draw the lane onto the warped blank image
+    cv2.fillPoly(window_img, np.int_([left_line_pts]), (0,255, 0))
+    cv2.fillPoly(window_img, np.int_([right_line_pts]), (0,255, 0))
+    result = cv2.addWeighted(out_img, 1, window_img, 0.3, 0)
+    plt.figure(figsize=(48, 18))
+    plt.imshow(result)
+    plt.plot(left_fitx, ploty, color='yellow')
+    plt.plot(right_fitx, ploty, color='yellow')
+    plt.xlim(0, 1280)
+    plt.ylim(720, 0)
+    plt.show()
+
 def get_fitted_poly(binary_warped, left_lane_inds, right_lane_inds):
     nonzero = binary_warped.nonzero()
     nonzerox = nonzero[1]
@@ -277,7 +320,7 @@ def add_radius_to_img(img, ploty, leftx, rightx):
 def all_steps(test_img, mtx, dist):
     nx = 9
     ny = 6
-    masked_img = pipeline(test_img)
+    masked_img = transform(test_img)
     warped, M, Minv = unwarp(masked_img, nx, ny, mtx, dist)
     leftx_base, rightx_base = get_max_points(warped)
     left_lane_inds, right_lane_inds = get_lane_indices(warped, leftx_base, rightx_base)
