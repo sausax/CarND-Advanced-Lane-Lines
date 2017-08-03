@@ -7,12 +7,17 @@ import matplotlib.pyplot as plt
 
 from moviepy.editor import VideoFileClip
 
-
-def display_image(img):
+# Function to display image
+def display_image(img, gray=False):
     plt.figure(figsize=(48, 18))
-    plt.imshow(img)
+    if gray:
+        plt.imshow(img, cmap='gray')
+    else:
+        plt.imshow(img)
     plt.show()
 
+# Calibration function.
+# Uses chessboard images for calibration
 def calibrate():
     objp = np.zeros((6*9,3), np.float32)
     objp[:,:2] = np.mgrid[0:9, 0:6].T.reshape(-1,2)
@@ -50,25 +55,15 @@ def calibrate():
     
     return (ret, mtx, dist)
 
+# Function to undistort images
+def undistort(img, mtx, dist):
+    return cv2.undistort(img, mtx, dist, None, mtx)
 
-# Perspective
-# MODIFY THIS FUNCTION TO GENERATE OUTPUT 
-# THAT LOOKS LIKE THE IMAGE ABOVE
-def unwarp(img, nx, ny, mtx, dist):
-    # Pass in your image into this function
-    # Write code to do the following steps
-    # 1) Undistort using mtx and dist
-    undist = cv2.undistort(img, mtx, dist, None, mtx)
-    #src = np.float32([[150+430,440],[1150-440,440],[1150,720],[150,720]])
-    src = np.float32([[150+430,460],[1150-440,460],[1150,720],[150,720]])
-    #src = np.float32([[573,467],[710,467],[950,620],[357,620]])
 
-    #dst = np.float32([[100, 100],\
-    #                     [undist.shape[1]-100, 100],\
-    #                    [undist.shape[1]-100, undist.shape[0]-100],\
-    #                    [100, undist.shape[0]-100],\
-    #                    ])
-    
+# Perspective transformation function
+def warp(undist, nx, ny, mtx, dist):
+    src = np.float32([[580,460],[710,460],[1150,720],[150,720]])
+
     offset1 = 200 # offset for dst points x value
     offset2 = 0 # offset for dst points bottom y value
     offset3 = 0 # offset for dst points top y value
@@ -76,21 +71,16 @@ def unwarp(img, nx, ny, mtx, dist):
     dst = np.float32([[offset1, offset3],[img_size[0]-offset1, offset3],[img_size[0]-offset1, img_size[1]-offset2], 
                       [offset1, img_size[1]-offset2]])
     
-    #dst = np.float32([[200,150], [img_size[1]-]])
     
-    # d) use cv2.getPerspectiveTransform() to get M, the transform matrix
     M = cv2.getPerspectiveTransform(src, dst)
     Minv = cv2.getPerspectiveTransform(dst, src)
-    # e) use cv2.warpPerspective() to warp your image to a top-down view
-    #img_size=(400, 600)
+
     warped = cv2.warpPerspective(undist, M, img_size, flags=cv2.INTER_LINEAR)
-    #delete the next two lines
-    #M = None
-    #warped = np.copy(img) 
+
     return warped, M, Minv
 
 
-
+# Threshold and color transformation
 def transform(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
     img = np.copy(img)
     # Convert to HSV color space and separate the V channel
@@ -130,7 +120,7 @@ def transform(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
     masked_image = cv2.bitwise_and(color_binary, mask)
     return masked_image
 
-
+# Get max intensite points using a histogram
 def get_max_points(binary_warped):
     histogram = np.sum(binary_warped[binary_warped.shape[0]//2:,:], axis=0)
 
@@ -144,7 +134,7 @@ def get_max_points(binary_warped):
 
     return (leftx_base, rightx_base)
 
-
+# Function to get lane indices
 def get_lane_indices(binary_warped, leftx_base, rightx_base):
     nwindows=9
 
@@ -177,12 +167,6 @@ def get_lane_indices(binary_warped, leftx_base, rightx_base):
         win_xright_low = rightx_current - margin
         win_xright_high = rightx_current + margin
         
-        #print(win_xright_low, win_xright_high)
-        
-        # Draw boxes
-        #cv2.rectangle(out_img,(win_xleft_low,win_y_low),(win_xleft_high,win_y_high),(0,255,0), 2) 
-        #cv2.rectangle(out_img,(win_xright_low,win_y_low),(win_xright_high,win_y_high),(0,255,0), 2)
-       
         # Identify the nonzero pixels in x and y within the window
         good_left_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) & (nonzerox >= win_xleft_low) & (nonzerox < win_xleft_high)).nonzero()[0]
 
@@ -190,15 +174,12 @@ def get_lane_indices(binary_warped, leftx_base, rightx_base):
                     (nonzerox >= win_xright_low) & (nonzerox < win_xright_high)).nonzero()[0]
         left_lane_inds.append(good_left_inds)
         right_lane_inds.append(good_right_inds)
-        #print(win_y_low, win_y_high, win_xright_low, win_xleft_high, good_right_inds)
         
         if len(good_left_inds) > minpix:
             leftx_current = np.int(np.mean(nonzerox[good_left_inds]))
-            #print("New leftx_current: ", leftx_current)
             
         if len(good_right_inds) > minpix:
             rightx_current = np.int(np.mean(nonzerox[good_right_inds]))
-            #print("New rightx_current: ", rightx_current)
         
 
     left_lane_inds = np.concatenate(left_lane_inds)
@@ -206,7 +187,7 @@ def get_lane_indices(binary_warped, leftx_base, rightx_base):
 
     return (left_lane_inds, right_lane_inds)
 
-
+# Function to plot curvature on image
 def plot_curvature(binary_warped, left_lane_inds, right_lane_inds, ploty, left_fitx, right_fitx):
     binary_warped = binary_warped.copy()
     nonzero = binary_warped.nonzero()
@@ -241,6 +222,7 @@ def plot_curvature(binary_warped, left_lane_inds, right_lane_inds, ploty, left_f
     plt.ylim(720, 0)
     plt.show()
 
+# Function to get points from fitted polynomial
 def get_fitted_poly(binary_warped, left_lane_inds, right_lane_inds):
     nonzero = binary_warped.nonzero()
     nonzerox = nonzero[1]
@@ -261,7 +243,7 @@ def get_fitted_poly(binary_warped, left_lane_inds, right_lane_inds):
 
     return ploty, left_fitx, right_fitx
 
-
+# Function to draw polynomial lines on images
 def draw_lines(image, warped, ploty, left_fitx, right_fitx, Minv):
     warp_zero = np.zeros_like(warped).astype(np.uint8)
     color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
@@ -303,6 +285,7 @@ def calculate_distance_from_center(left, right, image_width):
     image_center = image_width/2
     return (lane_center - image_center) * xm_per_pix
 
+# Function to add radius/distance from center text to images
 def add_radius_to_img(img, ploty, leftx, rightx):
     left_curverad, right_curverad = calculate_radius(ploty, leftx, rightx)
     text = 'Curve radius: ' + '{:04.2f}'.format(left_curverad) + 'm'
@@ -316,12 +299,13 @@ def add_radius_to_img(img, ploty, leftx, rightx):
         text = '{:04.3f}'.format(dist_from_center) + 'm' + ' right of center'
     cv2.putText(img, text, (40,110), cv2.FONT_HERSHEY_DUPLEX, 1.5, (200,255,155), 2, cv2.LINE_AA)
 
-
+# Function with all pipeline functions
 def all_steps(test_img, mtx, dist):
     nx = 9
     ny = 6
-    masked_img = transform(test_img)
-    warped, M, Minv = unwarp(masked_img, nx, ny, mtx, dist)
+    undist = undistort(test_img, mtx, dist) 
+    masked_img = transform(undist)
+    warped, M, Minv = warp(masked_img, nx, ny, mtx, dist)
     leftx_base, rightx_base = get_max_points(warped)
     left_lane_inds, right_lane_inds = get_lane_indices(warped, leftx_base, rightx_base)
     ploty, left_fitx, right_fitx = get_fitted_poly(warped, left_lane_inds, right_lane_inds)
@@ -330,6 +314,7 @@ def all_steps(test_img, mtx, dist):
     return final_img
 
 
+# Function to generate final video
 def generate_video(mtx, dist):
     input_video = 'project_video.mp4' 
     clip1 = VideoFileClip(input_video)
