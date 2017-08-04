@@ -7,6 +7,40 @@ import matplotlib.pyplot as plt
 
 from moviepy.editor import VideoFileClip
 
+
+class Line:
+    def __init__(self):
+        self.left_values = []
+        self.right_values = []
+
+
+    def check_new_points(self, left_val, right_val):
+        size = 20 # Keep last 10 values
+
+        if len(self.left_values) < size:
+            self.left_values.append(left_val)
+            self.right_values.append(right_val)
+            return (left_val, right_val)
+
+
+        last_left = self.left_values[-1]
+        last_right = self.right_values[-1]
+
+        if left_val >= 0.99*last_left and left_val <= 1.01*last_left and \
+            right_val >= 0.99*last_right and right_val <= 1.01*last_right:
+
+            self.left_values.pop(0)
+            self.left_values.append(left_val)
+
+            self.right_values.pop(0)
+            self.right_values.append(right_val)
+
+
+        return np.mean(self.left_values), np.mean(self.right_values)
+
+
+
+
 # Function to display image
 def display_image(img, gray=False):
     plt.figure(figsize=(48, 18))
@@ -28,7 +62,6 @@ def calibrate():
 
     # Make a list of calibration images
     images = glob.glob('camera_cal/*.jpg')
-    #print("Total images: ", len(images))
 
     # Step through the list and search for chessboard corners
     img = None
@@ -48,9 +81,6 @@ def calibrate():
     img_size = (img.shape[1], img.shape[0])
 
     # Do camera calibration given object points and image points
-    #print("\nObject points: ", objpoints)
-    #print("\nImage points: ", imgpoints)
-    #print("\nImage size: ", img_size)
     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, img_size, None, None)
     
     return (ret, mtx, dist)
@@ -108,7 +138,6 @@ def transform(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
 
     y_len = color_binary.shape[0]
     x_len = color_binary.shape[1]
-    #print(y_len, x_len)
     vertices = np.array([[
         (450, 500),
         (500, 320),
@@ -121,7 +150,7 @@ def transform(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
     return masked_image
 
 # Get max intensite points using a histogram
-def get_max_points(binary_warped):
+def get_max_points(binary_warped, line=None):
     histogram = np.sum(binary_warped[binary_warped.shape[0]//2:,:], axis=0)
 
     #out_img = np.dstack((binary_warped, binary_warped, binary_warped))
@@ -132,7 +161,11 @@ def get_max_points(binary_warped):
     leftx_base = np.argmax(histogram[:midpoint])
     rightx_base = np.argmax(histogram[midpoint:]) + midpoint
 
-    return (leftx_base, rightx_base)
+    if line is not None:
+        return line.check_new_points(leftx_base, rightx_base)
+    else:
+        return (leftx_base, rightx_base)
+
 
 # Function to get lane indices
 def get_lane_indices(binary_warped, leftx_base, rightx_base):
@@ -300,13 +333,13 @@ def add_radius_to_img(img, ploty, leftx, rightx):
     cv2.putText(img, text, (40,110), cv2.FONT_HERSHEY_DUPLEX, 1.5, (200,255,155), 2, cv2.LINE_AA)
 
 # Function with all pipeline functions
-def all_steps(test_img, mtx, dist):
+def all_steps(test_img, mtx, dist, line=None):
     nx = 9
     ny = 6
     undist = undistort(test_img, mtx, dist) 
     masked_img = transform(undist)
     warped, M, Minv = warp(masked_img, nx, ny, mtx, dist)
-    leftx_base, rightx_base = get_max_points(warped)
+    leftx_base, rightx_base = get_max_points(warped, line)
     left_lane_inds, right_lane_inds = get_lane_indices(warped, leftx_base, rightx_base)
     ploty, left_fitx, right_fitx = get_fitted_poly(warped, left_lane_inds, right_lane_inds)
     final_img = draw_lines(test_img, warped, ploty, left_fitx, right_fitx, Minv)
@@ -316,8 +349,9 @@ def all_steps(test_img, mtx, dist):
 
 # Function to generate final video
 def generate_video(mtx, dist):
+    line = Line()
     input_video = 'project_video.mp4' 
     clip1 = VideoFileClip(input_video)
     output_file = 'output_project_video.mp4'
-    output_clip = clip1.fl_image(lambda img: all_steps(img, mtx, dist))
+    output_clip = clip1.fl_image(lambda img: all_steps(img, mtx, dist, line))
     output_clip.write_videofile(output_file, audio=False)
